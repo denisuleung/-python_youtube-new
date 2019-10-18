@@ -31,8 +31,8 @@ class ExcelIO:
             print(self.file_lst[i] + ' has been imported')
             # maybe we can try to add region data in data frame
 
-    def export_csv(self, df):
-        df.to_csv("export.csv")
+    # def export_csv(self, df):
+    #     df.to_csv("export.csv")
 
     def main(self):
         self.get_csv_path_array()
@@ -65,7 +65,9 @@ class DataMiner:
         self.df['publish_minute'] = self.df['publish_time'].apply(lambda x: x[14:16]).astype(int)
         self.df['publish_second'] = self.df['publish_time'].apply(lambda x: x[17:19]).astype(int)
 
-    def get_video_online_days(self, ty, tm, td, puy, pum, pud): return (date(ty, tm, td) - date(puy, pum, pud)).days
+    def get_video_online_days(self, ty, tm, td, puy, pum, pud):
+        # To prevent publish day and trending days are same, add 0.5 on it.
+        return (date(ty, tm, td) - date(puy, pum, pud)).days + 0.5
 
     def get_tag_details(self):
         self.df['no_of_tag'] = self.df['tags'].apply(lambda x: len(x.split("|")))
@@ -73,15 +75,26 @@ class DataMiner:
     def get_description_length(self):
         self.df['length_of_description'] = self.df['description'].apply(lambda x: len(str(x)))
 
+    def get_video_online_day(self):
+        self.df['video_online_days'] = np.vectorize(self.get_video_online_days)\
+            (self.df['trending_year'], self.df['trending_month'], self.df['trending_day'],
+             self.df['publish_year'], self.df['publish_month'], self.df['publish_day'])
+
+    def get_views_per_day(self):
+        self.df['views_per_day'] = self.df['views'] / self.df['video_online_days']
+
+    def remove_duplicate_video_id(self):
+        self.df = self.df.sort_values(['video_id', 'video_online_days'], ascending=[0, 0]).groupby('video_id').head(1)
+
     def main(self):
         self.get_trending_date_time()
         self.get_title_content()
         self.get_publish_date_time()
-        self.df['video_online_days'] = np.vectorize(self.get_video_online_days)\
-            (self.df['trending_year'], self.df['trending_month'], self.df['trending_day'],
-             self.df['publish_year'], self.df['publish_month'], self.df['publish_day'])
         self.get_tag_details()
         self.get_description_length()
+        self.get_video_online_day()
+        self.get_views_per_day()
+        self.remove_duplicate_video_id()
 
 
 data_mined = DataMiner(excel.df)
@@ -145,11 +158,11 @@ class DescriptiveChart:
         # plt.savefig("no_of_tag_to_views.png", dpi=400)
 
     def main(self):
-        pass
-        # self.get_chart_title_length_to_views()
-        # self.get_chart_region_to_views()
-        # self.get_no_of_tag_to_views()
-        # self.get_comment_count_to_views()
+        # pass
+        self.get_chart_title_length_to_views()
+        self.get_chart_region_to_views()
+        self.get_no_of_tag_to_views()
+        self.get_comment_count_to_views()
 
 
 chart = DescriptiveChart(data_mined.df)
@@ -203,4 +216,9 @@ class Model:
 modeled = Model(data_mined.df)
 modeled.main()
 
-excel.export_csv(modeled.df)
+# excel.export_csv(modeled.df)
+
+# ================================== #
+
+# test = data_mined.df.sort_values(['video_id', 'video_online_days'], ascending=[0, 0])
+# test1 = data_mined.df.sort_values(['video_id', 'video_online_days'], ascending=[0, 0]).groupby('video_id').head(1)
