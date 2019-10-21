@@ -52,10 +52,52 @@ class DataMiner:
         self.df['trending_month'] = self.df['trending_date'].apply(lambda x: x[6:]).astype(int)
         self.df['trending_day'] = self.df['trending_date'].apply(lambda x: x[3:5]).astype(int)
 
+    # === TITLE ===
+    #   can get episode of video by # + number/ Episode/ No + number
+    def get_title_contain_episode(self, x):
+        episode_possible_lst = ['#' + str(x) for x in range(10)]
+        episode_possible_lst.extend(['NO' + str(x) for x in range(10)])
+        trim_title = x.replace(" ", "").upper()
+        if trim_title.find('EPISODE') != -1 or any(x in trim_title for x in episode_possible_lst):
+            return True
+        else:
+            return False
+
+    #   can check if there is the date in title by captured of month and year
+    def get_title_contain_date(self, x):
+        date_list = [str(x) for x in range(1900, 2050)]
+        date_list.extend(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
+        trim_title = x.replace(" ", "").upper()
+        for y in date_list:
+            if y in trim_title:
+                return y
+        return 'NA'
+
     def get_title_content(self):
         self.df['title_length'] = self.df['title'].apply(lambda x: len(x))
         self.df['title_captain_letter_ratio'] = self.df['title'].apply(lambda x: sum(1 for c in x if c.isupper())/len(x.replace(" ", "")))
         self.df['title_contain_mark'] = self.df['title'].apply(lambda x: 'True' if re.compile('[?!]').search(x) else 'False')
+        self.df['title_contain_episode'] = self.df['title'].apply(self.get_title_contain_episode)
+        self.df['title_contain_money'] = self.df['title'].apply(lambda x: x.count('$') > 0)
+        self.df['title_contain_date'] = self.df['title'].apply(self.get_title_contain_date)
+
+    # === CHANEL TITLE ===
+    # 1. count how many video for same channel (It may not correct since it does not include all of the video from raw data) (Pending)
+
+    # 2. count on english word ratio
+    def get_channel_title_captain_letter_ratio(self, x):
+        if len(re.sub('[^A-Za-z0-9]+', '', x)) == 0:
+            return 0
+        else:
+            return sum(1 for c in x if c.encode('UTF-8').isalnum()) / len(x.replace(" ", ""))
+
+    def get_channel_title_content(self):
+        self.df['channel_title_captain_letter_ratio'] = self.df['channel_title'].apply(self.get_channel_title_captain_letter_ratio)
+        # 3. Search word VEVO, Official, TV, Entertainment seperately.
+        self.df['channel_title_vevo'] = self.df['channel_title'].apply(lambda x: x.upper().count('VEVO') > 0)
+        self.df['channel_title_official'] = self.df['channel_title'].apply(lambda x: x.upper().count('OFFICIAL') > 0)
+        self.df['channel_title_tv'] = self.df['channel_title'].apply(lambda x: x.upper().count('TV') > 0)
+        self.df['channel_title_entertainment'] = self.df['channel_title'].apply(lambda x: x.upper().count('ENTERTAINMENT') > 0)
 
     def get_publish_date_time(self):
         self.df['publish_year'] = self.df['publish_time'].apply(lambda x: x[0:4]).astype(int)
@@ -72,6 +114,28 @@ class DataMiner:
     def get_tag_details(self):
         self.df['no_of_tag'] = self.df['tags'].apply(lambda x: len(x.split("|")))
 
+    def get_likes_percentage(self):
+        self.df['likes_percentage'] = self.df['likes']/(self.df['likes'] + self.df['dislikes'])
+
+    def refresh_comments_count(self, x, y, z):
+        if x:
+            # if comment is disabled, it is better to guess the comment_count by average value
+            return z / (self.df['views'].sum()/self.df['comment_count'].sum())
+        else:
+            return y
+
+    def refresh_likes(self, x, y, z):
+        if x:
+            return z / (self.df['views'].sum()/self.df['likes'].sum())
+        else:
+            return y
+
+    def refresh_dislikes(self, x, y, z):
+        if x:
+            return z / (self.df['views'].sum()/self.df['dislikes'].sum())
+        else:
+            return y
+
     def get_description_length(self):
         self.df['length_of_description'] = self.df['description'].apply(lambda x: len(str(x)))
 
@@ -83,21 +147,28 @@ class DataMiner:
     def get_views_per_day(self):
         self.df['views_per_day'] = self.df['views'] / self.df['video_online_days']
 
-    def remove_duplicate_video_id(self):
-        self.df = self.df.sort_values(['video_id', 'video_online_days'], ascending=[0, 0]).groupby('video_id').head(1)
+    # #   Since some of the rows' video id are same (Although video_online_day are difference).
+    # #   To main the records are independent, it is better to remove the few video online days one for the same video id case.
+    # def remove_duplicate_video_id(self):
+    #     self.df = self.df.sort_values(['video_id', 'video_online_days'], ascending=[0, 0]).groupby('video_id').head(1)
 
     def main(self):
         self.get_trending_date_time()
         self.get_title_content()
+        self.get_channel_title_content()
         self.get_publish_date_time()
         self.get_tag_details()
+        self.get_likes_percentage()
+        self.df['comment_count'] = np.vectorize(self.refresh_comments_count)(self.df['comments_disabled'], self.df['comment_count'], self.df['views'])
+        self.df['likes'] = np.vectorize(self.refresh_likes)(self.df['ratings_disabled'], self.df['likes'], self.df['views'])
+        self.df['dislikes'] = np.vectorize(self.refresh_dislikes)(self.df['ratings_disabled'], self.df['dislikes'], self.df['views'])
         self.get_description_length()
         self.get_video_online_day()
         self.get_views_per_day()
-        self.remove_duplicate_video_id()
+        # self.remove_duplicate_video_id()
 
 
-data_mined = DataMiner(excel.df)
+data_mined = DataMiner(excel.df.copy())
 data_mined.main()
 
 # Draft:
@@ -220,5 +291,4 @@ modeled.main()
 
 # ================================== #
 
-# test = data_mined.df.sort_values(['video_id', 'video_online_days'], ascending=[0, 0])
-# test1 = data_mined.df.sort_values(['video_id', 'video_online_days'], ascending=[0, 0]).groupby('video_id').head(1)
+# test = data_mined.df.sort_values(['description'], ascending=True)
